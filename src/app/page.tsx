@@ -1,69 +1,165 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import { Send, Bot, User, Sparkles } from 'lucide-react';
+
+interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export default function ChatPage() {
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [model, setModel] = useState<'groq' | 'gemini'>('groq');
+  const [loading, setLoading] = useState(false);
+
+const sendMessage = async (e: React.SubmitEvent) => {
+  e.preventDefault();
+  if (!input.trim() || loading) return;
+
+    const userMessage = input;
+    setInput('');
+    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
+    setLoading(true);
+
+    // Placeholder for streaming output
+    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: userMessage, model }),
+      });
+
+      if (!response.body) throw new Error('No readable stream');
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        setMessages((prev) => {
+          const updated = [...prev];
+          const lastIdx = updated.length - 1;
+          updated[lastIdx].content += chunk;
+          return updated;
+        });
+      }
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        { role: 'assistant', content: '⚠ Error connecting to server.' },
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex h-screen bg-zinc-950 text-zinc-100 font-sans">
+      {/* Sidebar */}
+      <div className="w-64 bg-zinc-900 border-r border-zinc-800 p-4 flex flex-col">
+        <div className="flex items-center gap-2 font-bold text-lg text-indigo-400 mb-8">
+          <Sparkles size={20} /> Homework AI
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+        <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-2">
+          Model Engine
+        </div>
+        <div className="space-y-2">
+          <button
+            type="button"
+            onClick={() => setModel('groq')}
+            className={`w-full text-left p-2.5 rounded text-sm transition ${
+              model === 'groq'
+                ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/50'
+                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+            }`}
           >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
+            Groq (Llama 3.3 70B)
+          </button>
+          <button
+            type="button"
+            onClick={() => setModel('gemini')}
+            className={`w-full text-left p-2.5 rounded text-sm transition ${
+              model === 'gemini'
+                ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/50'
+                : 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700'
+            }`}
+          >
+            Gemini 2.5 Flash
+          </button>
+        </div>
+      </div>
+
+      {/* Main Chat Box */}
+      <div className="flex-1 flex flex-col h-full">
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {messages.length === 0 && (
+            <div className="text-center text-zinc-500 mt-32">
+              <Sparkles size={48} className="mx-auto mb-4 opacity-50" />
+              <p className="text-lg">Ask any math, coding, or homework question.</p>
+            </div>
+          )}
+          {messages.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`flex gap-4 max-w-3xl ${
+                msg.role === 'user' ? 'ml-auto justify-end' : ''
+              }`}
+            >
+              {msg.role === 'assistant' && (
+                <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center shrink-0">
+                  <Bot size={18} />
+                </div>
+              )}
+              <div
+                className={`p-4 rounded-xl text-sm leading-relaxed ${
+                  msg.role === 'user'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-zinc-900 border border-zinc-800'
+                }`}
+              >
+                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  {msg.content}
+                </ReactMarkdown>
+              </div>
+              {msg.role === 'user' && (
+                <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center shrink-0">
+                  <User size={18} />
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Input Form */}
+        <form onSubmit={sendMessage} className="p-4 border-t border-zinc-800 bg-zinc-900">
+          <div className="max-w-3xl mx-auto flex gap-2">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Ask a question..."
+              className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-indigo-500"
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+            <button
+              type="submit"
+              disabled={loading}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white px-5 py-3 rounded-lg flex items-center gap-2 font-medium disabled:opacity-50"
+            >
+              <Send size={18} />
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
